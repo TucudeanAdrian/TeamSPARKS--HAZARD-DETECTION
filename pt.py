@@ -5,15 +5,16 @@ from numpy import matrix
 import time
 import math
 from edge import canny_edge_detector,region_of_interest,display_lines,average_slope_intercept
-
+import imutils
 def nothing(x):
     pass
 
 
-sensivity=40                                               
+sensivity=40
 
 
-capture=cv2.VideoCapture("dz_Trim.mp4") ###pentru video  ((((Cu resolutia 640 pe 480)))
+#car_cascade = cv2.CascadeClassifier('cars.xml')
+capture=cv2.VideoCapture("vr.mp4") ###pentru video  ((((Cu resolutia 640 pe 480)))
 ret,frame=capture.read()
 height = frame.shape[0]
 width = frame.shape[1]
@@ -22,7 +23,7 @@ height = frame.shape[0]
 width = frame.shape[1]
 
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
-out = cv2.VideoWriter('out123.avi', fourcc, 20.0, (1280,694))
+out = cv2.VideoWriter('out12345.avi', fourcc, 20.0, (1280,694))
 
 
 time.sleep(0.1)
@@ -48,13 +49,23 @@ agY=100
 x_cil=0
 y_cil=0
 danger=0
+
+
 def FSD(src):
-    
-  
-    
+    #colors = np.random.uniform(0, 255, size=(len(labels), 3))
+    print('[Status] Loading Model...')
+    nn = cv2.dnn.readNetFromCaffe('Caffe/SSD_MobileNet_prototxt.txt', 'Caffe/SSD_MobileNet.caffemodel')
+
+#Initialize Video Stream
+    print('[Status] Starting Video Stream...')
+    labels = ["background", "aeroplane", "bicycle", "bird", 
+"boat","bottle", "bus", "car", "cat", "chair", "cow", 
+"diningtable","dog", "horse", "motorbike", "person", "pottedplant", 
+"sheep","sofa", "train", "tvmonitor"]
+    colors = np.random.uniform(0, 255, size=(len(labels), 3))
     danger=0
     font = cv2.FONT_HERSHEY_SIMPLEX
-  
+    led = np.zeros(shape=[50, 760, 3], dtype=np.uint8)
     while True:
         #kernel=np.ones((3,3),np.uint8)
         kernel2=cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(2,2))
@@ -118,6 +129,12 @@ def FSD(src):
         
         #-----------------------------------------------------------------------------------------------------------------------------------
         window=frame
+        blob = cv2.dnn.blobFromImage(cv2.resize(window, (300, 300)), 
+    	0.007843, (300, 300), 127.5)
+
+    #Passing Blob through network to detect and predict
+        nn.setInput(blob)
+        detections = nn.forward()
         #lower_green = np.array([30,60,60])
         #upper_green = np.array([120,255,255])
         
@@ -132,9 +149,37 @@ def FSD(src):
         #mask = cv2.inRange(hsv, lower_green, upper_green)
         edge=canny_edge_detector(frame)
         edge=cv2.Canny(frame,50,150)
-        
+        grayvideo = cv2.cvtColor(window, cv2.COLOR_BGR2GRAY)
+        #-@@@-------------------
+        #cars = car_cascade.detectMultiScale(grayvideo, 1.3, 1)
+        (h, w) = window.shape[:2]
         cropped_image = region_of_interest(edge,width,height)
-        cr=cv2.dilate(cropped_image,kernel2,1)
+        #for (x,y,w,h) in cars:
+            #cv2.rectangle(frame,(x,y),(x+w,y+h),(0,0,255),2)
+            #cv2.rectangle(cropped_image,(x,y),(x+w,y+h),(0),2)
+            #cv2.fillPoly(cropped_image, [currentContour], 255)
+        #_#_#_#_#__#_#_#__#_#_#
+
+
+        #_#_#_#__#_#_#_#_#__#_#_#
+        cr=cv2.dilate(cropped_image,kernel2,2)
+        cr = cv2.morphologyEx(cr, cv2.MORPH_CLOSE, kernel2)
+        for i in np.arange(0, detections.shape[2]):
+
+	
+            confidence = detections[0, 0, i, 2]
+            if confidence > 0.7:
+                idx = int(detections[0, 0, i, 1])
+                box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
+                (startX, startY, endX, endY) = box.astype("int")
+
+            
+                label = "{}: {:.2f}%".format(labels[idx], confidence * 100)
+                cv2.rectangle(window, (startX, startY), (endX, endY), colors[idx], 2)
+                cv2.rectangle(edge,(startX,startY),(endX,endY), (255), -1)
+                cv2.rectangle(cr,(startX,startY),(endX,endY), (0), -1)
+                y = startY - 15 #if startY - 15 > 15 else startY + 15
+                cv2.putText(window, label, (startX, y),cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0), 2)
         #------------------------------------------------------------------------------------------------
         contours, hie = cv2.findContours(cr, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         try:
@@ -148,13 +193,32 @@ def FSD(src):
                 if area>200 and currentHierarchy[3] < 0:
                     #cv2.drawContours(frame,currentContour,-1,(0,255,255),1)
             #currentContour==a
+                    #(x,y,w,h) = cv2.boundingRect(contour)
+                    #cv2.rectangle(window, (x,y), (x+w,y+h), (255,0,255), 2)
                     cx = int(M['m10']/M['m00'])
                     cy = int(M['m01']/M['m00'])
                     mask_color = (0,255,0)
                     frame_copy = window.copy()
-                    cv2.fillPoly(frame_copy, [currentContour], mask_color)
-                    opacity = 0.2
+                    cv2.fillPoly(cropped_image, [currentContour], 255)
+                    
+                    
+                    
+                    (x,y,w,h) = cv2.boundingRect(currentContour)
+                    if(w<200):
+                        s=0
+                        #cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
+                        #cv2.fillPoly(frame_copy, [currentContour], (0,255,0))
+                        #cv2.rectangle(edge,(x,y),(x+w,y+h), (255), -1)
+                        #cv2.putText(window,"Pothole",(x,y),font, 0.5,(0,0,0),1,cv2.LINE_AA)
+                    #if(w>=200 and w<600):
+                    else:
+                        cv2.fillPoly(frame_copy, [currentContour], (0,255,0))
+                        cv2.rectangle(frame, (x,y), (x+w,y+h), (0,255,0), 2)
+                        cv2.rectangle(edge,(x,y),(x+w,y+h), (255), -1)
+                        cv2.putText(window,"Pothole ",(x,y),font, 0.5,(0,0,0),1,cv2.LINE_AA)
+                    opacity = 0.3
                     cv2.addWeighted(frame_copy,opacity,window,1-opacity,0,window)
+                    
                     #cv2.putText(window,"!",(cx,cy),font,1, (0,0,255), 2, cv2.LINE_AA)
             #for c1 in [c]:
             #print(hie)
@@ -162,6 +226,7 @@ def FSD(src):
         except:
             pass
         #-----------------------------------------------------------------------------------------------
+        
         cropped_image= cropped_image[int(2/3*height):height, 0:width]
         
         
@@ -174,11 +239,12 @@ def FSD(src):
         okRin=0
         okRout=0
         
-        erosion=cv2.dilate(edge,kernel2,1)
-        pic=np.array(erosion)
+        #erosion=cv2.dilate(edge,kernel2,1)
+        pic=np.array(edge)
+        
         for i in range(38):
-           y_form[i]=int(width/2-152)+8*i
-        for i in range(40,height-40):
+           y_form[i]=int(width/2-304)+16*i
+        for i in range(40,height):
             for j in range(38):
             	if pic[i][y_form[j]]: #and c1>i:
                 	    if x_form[j]<i:
@@ -195,9 +261,10 @@ def FSD(src):
             if x_form[j]>(4*height/5+20):
                 
             	cv2.circle(window,(y_form[j],x_form[j]),2,(0,0,255),1)
+            	cv2.rectangle(led,(20*j,0),(20*(j+1),50), (0,0,255), -1)
             	cv2.line(window,(y_form[j],x_form[j]),(y_form[j],height),(0,0,255),1)#rosu
             	contorR=contorR+1
-            	
+            	#cv2.rectangle(led,(40*j,0),(40*(j+1),100), (0,255,255), -1)
             	if j<37 and x_form[j]>(4*height/5) and x_form[j+1]>(4*height/5):
                         #R=R+1
                         #GxR=GxR+y_form[j]
@@ -214,15 +281,17 @@ def FSD(src):
             	Gx=Gx+y_form[j]
             	Gy=Gy+x_form[j]
             	contor=contor+1
+            	cv2.rectangle(led,(20*j,0),(20*(j+1),50), (0,255,255), -1)
             	cv2.line(window,(y_form[j],x_form[j]),(y_form[j],height),(0,255,255),1)
             	#cv2.line(window,(y_form[j],x_form[j]),(y_form[j],x_form[j]-30),(0,255,255),1)
             	#if j<37 and x_form[j]>(3*height/5+50) and x_form[j+1]>(3*height/5+50) and x_form[j]<=(2*height/3+100) and x_form[j+1]<=(2*height/3+100):
+                    
             		#cv2.line(window,(y_form[j+1],x_form[j+1]-30),(y_form[j],x_form[j]-30),(0,255,255),1)
                 
             else:
             	contor=contor+1
             	contorG=contorG+1
-            	
+            	cv2.rectangle(led,(20*j,0),(20*(j+1),50), (0,255,0), -1)
             	Gx1=Gx1+y_form[j]
             	Gy1=Gy1+x_form[j]
             	cv2.circle(window,(y_form[j],x_form[j]),2,(0,255,0),1)
@@ -311,7 +380,9 @@ def FSD(src):
         w = vis.shape[1]
         cv2.putText(vis,"Width"+str(w),(int(50),150),font, 0.5,(0,0,255),1,cv2.LINE_AA)
         cv2.putText(vis,"Height"+str(h),(int(50),175),font, 0.5,(0,0,255),1,cv2.LINE_AA)
-        cv2.imshow("crop",vis)
+        cv2.imshow("System",vis)
+        cv2.imshow("Rgb strip",led)
+        
         
         
         #print(h)
